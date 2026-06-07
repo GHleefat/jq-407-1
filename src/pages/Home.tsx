@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { useBookStore } from "@/store/useBookStore";
 import MarqueeBanner from "@/components/MarqueeBanner";
-import BookCardMatrix from "@/components/BookCardMatrix";
 import DotMatrixDisplay from "@/components/DotMatrixDisplay";
 import { Link } from "react-router-dom";
 
@@ -10,7 +9,6 @@ const ROTATE_INTERVAL = 12000;
 export default function Home() {
   const { books, currentIndex, nextBook, setCurrentIndex } = useBookStore();
   const [displayIndex, setDisplayIndex] = useState(0);
-  const [isTransitioning, setIsTransitioning] = useState(false);
 
   useEffect(() => {
     if (books.length === 0) return;
@@ -20,11 +18,7 @@ export default function Home() {
   useEffect(() => {
     if (books.length <= 1) return;
     const timer = setInterval(() => {
-      setIsTransitioning(true);
-      setTimeout(() => {
-        nextBook();
-        setTimeout(() => setIsTransitioning(false), 100);
-      }, 600);
+      nextBook();
     }, ROTATE_INTERVAL);
     return () => clearInterval(timer);
   }, [books.length, nextBook]);
@@ -47,11 +41,6 @@ export default function Home() {
 
   return (
     <div className="w-screen h-screen bg-black flex flex-col relative overflow-hidden">
-      <div
-        className="absolute inset-0 dot-grid-bg opacity-60 pointer-events-none"
-        aria-hidden
-      />
-
       <div className="relative z-10 border-b-2 border-led-orange/30">
         <MarqueeBanner
           text="◆ 推理书店 · 今日书单 ◆  MYSTERY  BOOKSTORE  ◆  真相只有一个  ◆  欢迎来到推理的世界  ◆  TODAY'S  RECOMMENDATION  ◆"
@@ -60,32 +49,16 @@ export default function Home() {
         />
       </div>
 
-      <div className="relative flex-1 overflow-hidden scanlines crt-flicker vignette">
+      <div className="relative flex-1 overflow-hidden">
         {current ? (
-          <>
-            <DotMatrixDisplay
-              lines={[
-                { text: `《${current.title}》`, size: "large" },
-                { text: `作者：${current.author}`, size: "medium" },
-                { text: `「${current.recommendation}」`, size: "small" },
-              ]}
-              scrollSpeed={35}
-              showBorder={false}
-            />
-            <div
-              className={`absolute inset-0 transition-opacity duration-700 ${
-                isTransitioning ? "opacity-0" : "opacity-100"
-              }`}
-            >
-              <BookCardMatrix
-                title={current.title}
-                author={current.author}
-                recommendation={current.recommendation}
-                index={displayIndex}
-                total={books.length}
-              />
-            </div>
-          </>
+          <DotMatrixDisplay
+            title={`《${current.title}》`}
+            author={`作者：${current.author}`}
+            recommendation={`「${current.recommendation}」`}
+            index={displayIndex}
+            total={books.length}
+            scrollSpeed={30}
+          />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
             <p className="font-dot text-led-orange led-glow text-3xl pixel-text">
