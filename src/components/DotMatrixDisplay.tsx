@@ -83,17 +83,17 @@ export default function DotMatrixDisplay({
 
       flickerRef.current = new Uint8Array(cols * rows);
 
-      const headerRows = Math.max(5, Math.round(rows * 0.09));
-      const footerRows = Math.max(4, Math.round(rows * 0.08));
-      const spacer = Math.max(1, Math.round(rows * 0.025));
+      const headerRows = Math.max(5, Math.round(rows * 0.075));
+      const footerRows = Math.max(4, Math.round(rows * 0.065));
+      const spacer = Math.max(1, Math.round(rows * 0.015));
       const indicatorRows = 2;
       const used = headerRows + footerRows + indicatorRows + spacer * 5;
-      const remaining = Math.max(18, rows - used);
-      const titleRows = Math.round(remaining * 0.42);
-      const authorRows = Math.round(remaining * 0.26);
-      const recRows = remaining - titleRows - authorRows;
+      const remaining = Math.max(24, rows - used);
+      const titleRows = Math.max(18, Math.round(remaining * 0.38));
+      const authorRows = Math.max(16, Math.round(remaining * 0.30));
+      const recRows = Math.max(16, remaining - titleRows - authorRows);
 
-      const OVERSAMPLE = 3;
+      const OVERSAMPLE = 5;
 
       const makeTextCanvas = (
         text: string,
@@ -105,7 +105,7 @@ export default function DotMatrixDisplay({
         tc.height = pixelH;
         const tctx = tc.getContext("2d")!;
         tctx.imageSmoothingEnabled = true;
-        const fontSize = Math.floor(pixelH * 0.92);
+        const fontSize = Math.floor(pixelH * 0.86);
         const fontStr = `${fontSize}px "ZCOOL KuaiLe", "PingFang SC", "Microsoft YaHei", "VT323", monospace`;
         tctx.font = fontStr;
         const metrics = tctx.measureText(text);
@@ -253,27 +253,19 @@ export default function DotMatrixDisplay({
     if (!ctx) return;
     ctx.imageSmoothingEnabled = false;
 
-    const SAMPLE = 3;
-    const HALF = (SAMPLE - 1) / 2;
-
-    const sampleMax = (
+    const samplePixel = (
       data: Uint8ClampedArray,
       w: number,
-      h: number,
       cx: number,
       cy: number,
     ) => {
-      let max = 0;
-      for (let dy = -HALF; dy <= HALF; dy++) {
-        for (let dx = -HALF; dx <= HALF; dx++) {
-          const px = Math.max(0, Math.min(w - 1, cx + dx));
-          const py = Math.max(0, Math.min(h - 1, cy + dy));
-          const p = (py * w + px) * 4;
-          const v = (data[p] + data[p + 1] + data[p + 2]) / 3;
-          if (v > max) max = v;
-        }
-      }
-      return max;
+      const px = Math.max(0, Math.min(w - 1, Math.round(cx)));
+      const py = Math.max(
+        0,
+        Math.min(data.length / (w * 4) - 1, Math.round(cy)),
+      );
+      const p = (py * w + px) * 4;
+      return (data[p] + data[p + 1] + data[p + 2]) / 3;
     };
 
     const draw = (time: number) => {
@@ -318,9 +310,6 @@ export default function DotMatrixDisplay({
 
           if (lineData) {
             const localRow = row - lineData.yStart;
-            const py = Math.floor(
-              (localRow + 0.5) * (lineData.pixelHeight / lineData.rows),
-            );
 
             let colInText: number;
             if (lineData.scroll) {
@@ -335,17 +324,15 @@ export default function DotMatrixDisplay({
               colInText >= 0 &&
               colInText < lineData.dotColsInText
             ) {
-              const px = Math.floor(
-                (colInText + 0.5) * lineData.pxPerDot,
-              );
-              const v = sampleMax(
+              const px = (colInText + 0.5) * lineData.pxPerDot;
+              const py = (localRow + 0.5) * (lineData.pixelHeight / lineData.rows);
+              const v = samplePixel(
                 lineData.pixelData,
                 lineData.pixelWidth,
-                lineData.pixelHeight,
                 px,
                 py,
               );
-              if (v > 20) {
+              if (v > 110) {
                 isLit = true;
                 dotColor = lineData.color;
               }
