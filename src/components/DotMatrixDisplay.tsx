@@ -36,6 +36,24 @@ interface LineDef {
   startDotOffset: number;
 }
 
+const hexToRgba = (hex: string, alpha: number) => {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
+
+const glowWithAlpha = (glow: string, alpha: number) => {
+  const match = glow.match(/rgba?\(([^)]+)\)/);
+  if (!match) return glow;
+  const parts = match[1].split(",").map((s) => s.trim());
+  if (parts.length === 4) {
+    const a = parseFloat(parts[3]);
+    return `rgba(${parts[0]}, ${parts[1]}, ${parts[2]}, ${a * alpha})`;
+  }
+  return glow;
+};
+
 export default function DotMatrixDisplay({
   title,
   author,
@@ -52,8 +70,11 @@ export default function DotMatrixDisplay({
   const flickerRef = useRef<Uint8Array>(new Uint8Array(0));
   const sizeRef = useRef({ cols: 0, rows: 0 });
   const layoutRef = useRef<LineDef[]>([]);
-  const indicatorRef = useRef<{ cols: number[]; row: number } | null>(null);
   const buildLayoutRef = useRef<(() => void) | null>(null);
+  const fadeAlphaRef = useRef(1);
+  const fadeTargetRef = useRef(1);
+  const hasRenderedOnceRef = useRef(false);
+  const FADE_DURATION = 300;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -68,30 +89,28 @@ export default function DotMatrixDisplay({
       }
 
       const dpr = window.devicePixelRatio || 1;
-      const rect = container.getBoundingClientRect();
-      const cols = Math.max(30, Math.floor(rect.width / CELL));
-      const rows = Math.max(24, Math.floor(rect.height / CELL));
+      const cw = container.clientWidth || window.innerWidth * 0.9;
+      const ch = container.clientHeight || window.innerHeight * 0.6;
+      const cols = Math.max(30, Math.floor(cw / CELL));
+      const rows = Math.max(24, Math.floor(ch / CELL));
       sizeRef.current = { cols, rows };
 
       canvas.width = cols * CELL * dpr;
       canvas.height = rows * CELL * dpr;
-      canvas.style.width = `${cols * CELL}px`;
-      canvas.style.height = `${rows * CELL}px`;
+      canvas.style.width = "100%";
+      canvas.style.height = "100%";
 
       const ctx = canvas.getContext("2d");
       if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
       flickerRef.current = new Uint8Array(cols * rows);
 
-      const headerRows = Math.max(5, Math.round(rows * 0.075));
-      const footerRows = Math.max(4, Math.round(rows * 0.065));
-      const spacer = Math.max(1, Math.round(rows * 0.015));
-      const indicatorRows = 2;
-      const used = headerRows + footerRows + indicatorRows + spacer * 5;
-      const remaining = Math.max(24, rows - used);
-      const titleRows = Math.max(18, Math.round(remaining * 0.38));
-      const authorRows = Math.max(16, Math.round(remaining * 0.30));
-      const recRows = Math.max(16, remaining - titleRows - authorRows);
+      const spacer = Math.max(2, Math.round(rows * 0.03));
+      const used = spacer * 2;
+      const remaining = Math.max(30, rows - used);
+      const titleRows = Math.max(20, Math.round(remaining * 0.4));
+      const authorRows = Math.max(18, Math.round(remaining * 0.30));
+      const recRows = Math.max(18, remaining - titleRows - authorRows);
 
       const OVERSAMPLE = 5;
 
@@ -152,13 +171,6 @@ export default function DotMatrixDisplay({
         text: string;
       }[] = [
         {
-          key: "header",
-          rows: headerRows,
-          color: { on: COLOR_AMBER_ON, glow: COLOR_AMBER_GLOW },
-          scroll: false,
-          text: "◆ 今日推荐 ◆",
-        },
-        {
           key: "title",
           rows: titleRows,
           color: { on: COLOR_ON, glow: COLOR_GLOW },
@@ -179,20 +191,12 @@ export default function DotMatrixDisplay({
           scroll: true,
           text: recommendation + "          ",
         },
-        {
-          key: "footer",
-          rows: footerRows,
-          color: { on: COLOR_ON, glow: COLOR_GLOW },
-          scroll: false,
-          text: `${String(index + 1).padStart(2, "0")} / ${String(total).padStart(2, "0")}   ◆ MYSTERY ◆`,
-        },
       ];
 
       const finalLayout: LineDef[] = [];
-      let cursor = 0;
-      let indicatorRow = 0;
+      let cursor = Math.max(1, Math.floor(spacer / 2));
 
-      lineDefs.forEach((def, i) => {
+      lineDefs.forEach((def) => {
         const result = makeTextCanvas(def.text, def.rows, def.scroll);
         const staticColOffset = def.scroll
           ? 0
@@ -212,32 +216,25 @@ export default function DotMatrixDisplay({
           startDotOffset: result.startDotOffset,
         });
         cursor += def.rows + spacer;
-        if (i === 3) {
-          cursor += spacer;
-          indicatorRow = cursor;
-          cursor += indicatorRows + spacer;
-        }
       });
 
       layoutRef.current = finalLayout;
-
-      const dotCols: number[] = [];
-      const gap = 3;
-      const dotWidth = 2;
-      const allWidth = total * dotWidth + Math.max(0, total - 1) * gap;
-      const start = Math.max(0, Math.floor((cols - allWidth) / 2));
-      for (let i = 0; i < total; i++) {
-        for (let j = 0; j < dotWidth; j++) {
-          dotCols.push(start + i * (dotWidth + gap) + j);
-        }
-      }
-      indicatorRef.current = { cols: dotCols, row: indicatorRow };
-
       scrollRef.current = 0;
     };
 
     buildLayoutRef.current = buildLayout;
-    buildLayout();
+
+    const isFirstLoad = !hasRenderedOnceRef.current;
+    if (isFirstLoad) {
+      buildLayout();
+      hasRenderedOnceRef.current = true;
+      fadeAlphaRef.current = 1;
+      fadeTargetRef.current = 1;
+    } else {
+      fadeAlphaRef.current = 0;
+      fadeTargetRef.current = 1;
+      buildLayout();
+    }
 
     const onResize = () => {
       if (buildLayoutRef.current) buildLayoutRef.current();
@@ -273,11 +270,31 @@ export default function DotMatrixDisplay({
       lastTimeRef.current = time;
       const { cols, rows } = sizeRef.current;
       if (cols === 0 || rows === 0) {
+        if (buildLayoutRef.current) buildLayoutRef.current();
         animFrameRef.current = requestAnimationFrame(draw);
         return;
       }
 
-      scrollRef.current -= (scrollSpeed * delta) / 1000;
+      if (fadeAlphaRef.current !== fadeTargetRef.current) {
+        const step = delta / FADE_DURATION;
+        if (fadeAlphaRef.current < fadeTargetRef.current) {
+          fadeAlphaRef.current = Math.min(
+            fadeTargetRef.current,
+            fadeAlphaRef.current + step,
+          );
+        } else {
+          fadeAlphaRef.current = Math.max(
+            fadeTargetRef.current,
+            fadeAlphaRef.current - step,
+          );
+        }
+      }
+
+      const alpha = fadeAlphaRef.current;
+
+      if (alpha > 0) {
+        scrollRef.current -= (scrollSpeed * delta) / 1000;
+      }
       const flicker = flickerRef.current;
       for (let i = 0; i < flicker.length; i++) {
         if (Math.random() < 0.004) {
@@ -339,25 +356,11 @@ export default function DotMatrixDisplay({
             }
           }
 
-          const indicator = indicatorRef.current;
-          if (indicator && row >= indicator.row && row < indicator.row + 2) {
-            const flatIdx = indicator.cols.indexOf(col);
-            if (flatIdx !== -1) {
-              const dotIdx = Math.floor(flatIdx / 2);
-              if (dotIdx >= 0 && dotIdx < total) {
-                isLit = true;
-                dotColor =
-                  dotIdx === index
-                    ? { on: COLOR_ON, glow: COLOR_GLOW }
-                    : { on: "#4a2000", glow: "rgba(74,32,0,0.4)" };
-              }
-            }
-          }
-
-          if (isLit && !isFlickering) {
-            ctx.shadowColor = dotColor.glow;
+          if (isLit && !isFlickering && alpha > 0) {
+            const effectiveAlpha = alpha;
+            ctx.shadowColor = glowWithAlpha(dotColor.glow, effectiveAlpha);
             ctx.shadowBlur = 2.5;
-            ctx.fillStyle = dotColor.on;
+            ctx.fillStyle = hexToRgba(dotColor.on, effectiveAlpha);
             ctx.beginPath();
             ctx.arc(
               dotX + DOT_SIZE / 2,
@@ -369,7 +372,7 @@ export default function DotMatrixDisplay({
             ctx.fill();
             ctx.shadowBlur = 0;
 
-            ctx.fillStyle = "rgba(255,255,255,0.32)";
+            ctx.fillStyle = hexToRgba("#ffffff", effectiveAlpha * 0.32);
             ctx.beginPath();
             ctx.arc(
               dotX + DOT_SIZE / 2 - 0.7,
@@ -406,9 +409,7 @@ export default function DotMatrixDisplay({
       ref={containerRef}
       className="relative w-full h-full overflow-hidden bg-black"
     >
-      <div className="absolute inset-0 flex items-center justify-center">
-        <canvas ref={canvasRef} className="block" />
-      </div>
+      <canvas ref={canvasRef} className="absolute inset-0 block" />
 
       <div
         className="absolute inset-0 pointer-events-none z-10"
